@@ -1,331 +1,21 @@
 import React, { useState, useEffect } from "react";
 import type {
-  ComparisonTableProps,
   DcfInputs,
   DcfResult,
-  ErrorMessageProps,
-  FinancialChecklistProps,
-  HistoricalChartProps,
-  MetricProps,
   PeerData,
-  ProjectionChartProps,
   StockData,
 } from "./types/types";
+import { Metric } from "./components/Metric";
+import { Spinner } from "./components/Spinner";
+import { ErrorMessage } from "./components/ErrorMessage";
+import { ProjectionChart } from "./components/ProjectionChart";
+import { HistoricalChart } from "./components/HistoricalChart";
+import { ComparisonTable } from "./components/ComparisonTable";
+import { FinancialChecklist } from "./components/FinancialChecklist";
+import { Watchlist } from "./components/Watchlist";
 
 const API_KEY = import.meta.env.VITE_FMP_API_KEY as string;
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY as string;
-
-// --- Helper Components ---
-
-const Metric: React.FC<MetricProps> = ({ label, value, tooltip }) => (
-  <div className="relative flex flex-col bg-gray-800 p-4 rounded-lg shadow-md group h-full">
-    <dt className="text-sm font-medium text-gray-400 truncate">{label}</dt>
-    <dd className="mt-1 text-2xl font-semibold text-white">{value}</dd>
-    {tooltip && (
-      <div className="absolute bottom-full mb-2 hidden group-hover:block w-max bg-gray-900 text-white text-xs rounded py-1 px-2 z-10">
-        {tooltip}
-      </div>
-    )}
-  </div>
-);
-
-const Spinner: React.FC = () => (
-  <div className="flex justify-center items-center p-8">
-    <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-blue-500"></div>
-  </div>
-);
-
-const ErrorMessage: React.FC<ErrorMessageProps> = ({ message }) => (
-  <div
-    className="bg-red-900 border border-red-600 text-red-200 px-4 py-3 rounded-lg relative"
-    role="alert"
-  >
-    <strong className="font-bold">Error: </strong>
-    <span className="block sm:inline">{message}</span>
-  </div>
-);
-
-const ProjectionChart: React.FC<ProjectionChartProps> = ({
-  data,
-  currentPrice,
-}) => {
-  if (!data || data.length === 0) return null;
-  const width = 500,
-    height = 300,
-    padding = 50;
-  const allPrices = [currentPrice, ...data.map((p) => p.price)];
-  const minPrice = Math.min(...allPrices) * 0.95;
-  const maxPrice = Math.max(...allPrices) * 1.05;
-  const getX = (index: number): number =>
-    padding + (index / data.length) * (width - padding * 2);
-  const getY = (price: number): number =>
-    height -
-    padding -
-    ((price - minPrice) / (maxPrice - minPrice)) * (height - padding * 2);
-  const linePath = data.reduce(
-    (acc, point, i) => `${acc} L ${getX(i + 1)} ${getY(point.price)}`,
-    `M ${getX(0)} ${getY(currentPrice)}`
-  );
-
-  return (
-    <div className="mt-6 bg-gray-900 p-4 rounded-lg">
-      <h4 className="text-lg font-semibold text-center mb-2">
-        Proyección de Precio a 5 Años
-      </h4>
-      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto">
-        {[...Array(5)].map((_, i) => {
-          const price = minPrice + (i / 4) * (maxPrice - minPrice);
-          const y = getY(price);
-          return (
-            <g key={i}>
-              <line
-                x1={padding}
-                y1={y}
-                x2={width - padding}
-                y2={y}
-                stroke="#4A5568"
-                strokeDasharray="2,2"
-              />
-              <text
-                x={padding - 10}
-                y={y + 5}
-                fill="#A0AEC0"
-                fontSize="10"
-                textAnchor="end"
-              >
-                ${price.toFixed(2)}
-              </text>
-            </g>
-          );
-        })}
-        {data.map((point, i) => (
-          <text
-            key={point.year}
-            x={getX(i + 1)}
-            y={height - padding + 20}
-            fill="#A0AEC0"
-            fontSize="10"
-            textAnchor="middle"
-          >
-            {point.year}
-          </text>
-        ))}
-        <text
-          x={getX(0)}
-          y={height - padding + 20}
-          fill="#A0AEC0"
-          fontSize="10"
-          textAnchor="middle"
-        >
-          Actual
-        </text>
-        <path d={linePath} fill="none" stroke="#38B2AC" strokeWidth="2" />
-        <circle cx={getX(0)} cy={getY(currentPrice)} r="4" fill="#38B2AC" />
-        {data.map((point, i) => (
-          <circle
-            key={point.year}
-            cx={getX(i + 1)}
-            cy={getY(point.price)}
-            r="4"
-            fill="#38B2AC"
-          />
-        ))}
-      </svg>
-    </div>
-  );
-};
-
-const HistoricalChart: React.FC<HistoricalChartProps> = ({ data }) => {
-  if (!data || data.length === 0)
-    return <div className="text-center p-4">No historical data available.</div>;
-  const width = 500,
-    height = 300,
-    padding = 50;
-  const reversedData = [...data].reverse();
-  const minEps = Math.min(...reversedData.map((d) => d.eps)) * 0.9;
-  const maxEps = Math.max(...reversedData.map((d) => d.eps)) * 1.1;
-  const getX = (index: number): number =>
-    padding + (index / (reversedData.length - 1)) * (width - padding * 2);
-  const getY = (eps: number): number =>
-    height -
-    padding -
-    ((eps - minEps) / (maxEps - minEps)) * (height - padding * 2);
-  const linePath = reversedData.reduce(
-    (acc, point, i) => `${acc} L ${getX(i)} ${getY(point.eps)}`,
-    `M ${getX(0)} ${getY(reversedData[0].eps)}`
-  );
-
-  return (
-    <div className="bg-gray-800 p-4 rounded-lg">
-      <h3 className="text-xl font-bold text-center mb-4">
-        Evolución del EPS (5 Años)
-      </h3>
-      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto">
-        {[...Array(6)].map((_, i) => {
-          const eps = minEps + (i / 5) * (maxEps - minEps);
-          const y = getY(eps);
-          return (
-            <g key={i}>
-              <line
-                x1={padding}
-                y1={y}
-                x2={width - padding}
-                y2={y}
-                stroke="#4A5568"
-                strokeDasharray="2,2"
-              />
-              <text
-                x={padding - 10}
-                y={y + 5}
-                fill="#A0AEC0"
-                fontSize="10"
-                textAnchor="end"
-              >
-                ${eps.toFixed(2)}
-              </text>
-            </g>
-          );
-        })}
-        {reversedData.map((d, i) => (
-          <text
-            key={d.date}
-            x={getX(i)}
-            y={height - padding + 20}
-            fill="#A0AEC0"
-            fontSize="10"
-            textAnchor="middle"
-          >
-            {new Date(d.date).getFullYear()}
-          </text>
-        ))}
-        <path d={linePath} fill="none" stroke="#38B2AC" strokeWidth="2" />
-        {reversedData.map((d, i) => (
-          <circle
-            key={d.date}
-            cx={getX(i)}
-            cy={getY(d.eps)}
-            r="4"
-            fill="#38B2AC"
-          />
-        ))}
-      </svg>
-    </div>
-  );
-};
-
-const ComparisonTable: React.FC<ComparisonTableProps> = ({
-  peers,
-  mainStock,
-}) => {
-  const formatNumber = (num: number | null | undefined): string => {
-    if (num === null || num === undefined || isNaN(num) || !isFinite(num))
-      return "–";
-    if (num > 1_000_000_000) return `${(num / 1_000_000_000).toFixed(2)}B`;
-    return num.toFixed(2);
-  };
-
-  const peerStats = peers.filter((p) => p.pe && p.mktCap);
-  const avgPE = peerStats.reduce((acc, p) => acc + p.pe!, 0) / peerStats.length;
-  const avgMktCap =
-    peerStats.reduce((acc, p) => acc + p.mktCap!, 0) / peerStats.length;
-
-  const allStocks = [
-    {
-      symbol: mainStock.profile.symbol,
-      pe: mainStock.quote.pe,
-      mktCap: mainStock.profile.mktCap,
-      isMain: true,
-    },
-    ...peers,
-  ];
-
-  return (
-    <div className="bg-gray-800 p-4 rounded-lg">
-      <h3 className="text-xl font-bold text-center mb-4">
-        Comparativa de Competidores
-      </h3>
-      <div className="overflow-x-auto">
-        <table className="w-full text-left">
-          <thead>
-            <tr className="border-b border-gray-700">
-              <th className="p-2">Ticker</th>
-              <th className="p-2">P/E Ratio</th>
-              <th className="p-2">Market Cap</th>
-            </tr>
-          </thead>
-          <tbody>
-            {allStocks.map((stock) => (
-              <tr
-                key={stock.symbol}
-                className={`${
-                  stock.isMain ? "bg-blue-900/50" : ""
-                } border-b border-gray-700/50`}
-              >
-                <td className="p-2 font-bold">{stock.symbol}</td>
-                <td className="p-2">{formatNumber(stock.pe)}</td>
-                <td className="p-2">${formatNumber(stock.mktCap)}</td>
-              </tr>
-            ))}
-            <tr className="bg-gray-900 font-bold">
-              <td className="p-2">Promedio del Sector</td>
-              <td className="p-2">{formatNumber(avgPE)}</td>
-              <td className="p-2">${formatNumber(avgMktCap)}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-};
-
-const FinancialChecklist: React.FC<FinancialChecklistProps> = ({
-  stockData,
-}) => {
-  const { quote, ratios, historicalEPS } = stockData;
-  const checks = [
-    {
-      label: "P/E Ratio por debajo de 25",
-      passed: (quote?.pe ?? ratios?.priceEarningsRatioTTM ?? 99) < 25,
-    },
-    {
-      label: "Deuda/Capital por debajo de 1",
-      passed: (ratios?.debtToEquityRatioTTM ?? 99) < 1,
-    },
-    {
-      label: "ROE (Rentabilidad) superior al 15%",
-      passed: (ratios?.returnOnEquityTTM ?? 0) * 100 > 15,
-    },
-    {
-      label: "Crecimiento constante de EPS (3 de 5 años)",
-      passed:
-        historicalEPS
-          .slice(0, 5)
-          .filter((v, i, a) => i > 0 && v.eps > a[i - 1].eps).length >= 3,
-    },
-  ];
-
-  return (
-    <div className="bg-gray-800 p-4 rounded-lg">
-      <h3 className="text-xl font-bold text-center mb-4">
-        Checklist de Salud Financiera
-      </h3>
-      <ul className="space-y-2">
-        {checks.map((check) => (
-          <li key={check.label} className="flex items-center">
-            <span
-              className={`mr-2 text-xl ${
-                check.passed ? "text-green-400" : "text-red-400"
-              }`}
-            >
-              {check.passed ? "✅" : "❌"}
-            </span>
-            <span>{check.label}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-};
 
 // Main Application Component
 const App: React.FC = () => {
@@ -344,15 +34,12 @@ const App: React.FC = () => {
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [analysisResult, setAnalysisResult] = useState<string>("");
 
-  const fetchStockData = async (): Promise<void> => {
-    if (!ticker) {
+  const fetchStockData = async (symbol: string = ticker): Promise<void> => {
+    if (!symbol) {
       setError("Please enter a stock ticker.");
       return;
     }
-    if (API_KEY === "YOUR_API_KEY_HERE") {
-      setError('Please replace "YOUR_API_KEY_HERE" with your FMP API key.');
-      return;
-    }
+
 
     setIsLoading(true);
     setError(null);
@@ -360,8 +47,8 @@ const App: React.FC = () => {
     setAnalysisResult("");
 
     try {
-      const upperTicker = ticker.toUpperCase();
-      const profileUrl = `https://financialmodelingprep.com/api/v3/profile/${upperTicker}?apikey=${API_KEY}`;
+      const upperTicker = symbol.toUpperCase();
+      const profileUrl = `https://financialmodelingprep.com/stable/profile?symbol=${upperTicker}&apikey=${API_KEY}`;
       const profileResponse = await fetch(profileUrl);
       if (!profileResponse.ok)
         throw new Error("Could not fetch profile data. Check ticker.");
@@ -369,39 +56,38 @@ const App: React.FC = () => {
       if (profileData.length === 0)
         throw new Error(`No data found for ticker "${upperTicker}".`);
 
-      const industry = profileData[0].industry;
-      const screenerUrl = `https://financialmodelingprep.com/api/v3/stock-screener?industry=${encodeURIComponent(
-        industry
-      )}&limit=6&apikey=${API_KEY}`;
+
 
       const urls = [
-        `https://financialmodelingprep.com/api/v3/key-metrics-ttm/${upperTicker}?apikey=${API_KEY}`,
-        `https://financialmodelingprep.com/api/v3/ratios-ttm/${upperTicker}?apikey=${API_KEY}`,
-        `https://financialmodelingprep.com/api/v3/quote/${upperTicker}?apikey=${API_KEY}`,
-        `https://financialmodelingprep.com/api/v3/income-statement/${upperTicker}?limit=5&apikey=${API_KEY}`,
-        screenerUrl,
+        `https://financialmodelingprep.com/stable/key-metrics-ttm?symbol=${upperTicker}&apikey=${API_KEY}`,
+        `https://financialmodelingprep.com/stable/ratios-ttm?symbol=${upperTicker}&apikey=${API_KEY}`,
+        `https://financialmodelingprep.com/stable/quote?symbol=${upperTicker}&apikey=${API_KEY}`,
+        `https://financialmodelingprep.com/stable/income-statement?symbol=${upperTicker}&limit=5&apikey=${API_KEY}`,
+
       ];
 
       const responses = await Promise.all(urls.map((url) => fetch(url)));
       if (responses.some((res) => !res.ok))
         throw new Error("Failed to fetch some stock data.");
 
-      const [metricsData, ratiosData, quoteData, historicalData, peerData] =
+      const [metricsData, ratiosData, quoteData, historicalData] =
         await Promise.all(responses.map((res) => res.json()));
 
-      const peers: PeerData[] = peerData
-        .filter((p: any) => p.symbol !== upperTicker)
-        .map((p: any) => ({
-          symbol: p.symbol,
-          pe: p.pe,
-          mktCap: p.marketCap,
-        }));
+      const peers: PeerData[] = [];
+
+      const rawProfile = profileData[0];
+      const rawMetrics = metricsData.length > 0 ? metricsData[0] : {};
+      const rawRatios = ratiosData.length > 0 ? ratiosData[0] : {};
+      const rawQuote = quoteData.length > 0 ? quoteData[0] : {};
 
       const combinedData: StockData = {
-        profile: profileData[0],
-        metrics: metricsData.length > 0 ? metricsData[0] : {},
-        ratios: ratiosData.length > 0 ? ratiosData[0] : {},
-        quote: quoteData.length > 0 ? quoteData[0] : {},
+        profile: {
+          ...rawProfile,
+          mktCap: rawProfile.mktCap || rawProfile.marketCap || 0,
+        },
+        metrics: rawMetrics,
+        ratios: rawRatios,
+        quote: rawQuote,
         historicalEPS: historicalData.map((d: any) => ({
           date: d.date,
           eps: d.eps,
@@ -592,6 +278,11 @@ const App: React.FC = () => {
     </button>
   );
 
+  const handleWatchlistSelect = (symbol: string) => {
+    setTicker(symbol);
+    fetchStockData(symbol);
+  };
+
   return (
     <div className="bg-gray-900 text-white min-h-screen font-sans">
       <div className="container mx-auto p-4 sm:p-6 lg:p-8">
@@ -603,6 +294,8 @@ const App: React.FC = () => {
             Enter a stock ticker to get key financial metrics.
           </p>
         </header>
+
+        <Watchlist onSelectTicker={handleWatchlistSelect} />
 
         <div className="max-w-2xl mx-auto mb-8">
           <form
@@ -799,100 +492,110 @@ const App: React.FC = () => {
                     disabled={isAnalyzing || isLoading}
                     className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg transition-colors flex items-center gap-2 disabled:bg-purple-800 disabled:cursor-not-allowed"
                   >
-                    ✨ Analizar con IA
+                    {isAnalyzing ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white"></div>
+                        Analizando...
+                      </>
+                    ) : (
+                      <>
+                        <span>✨</span> Análisis AI
+                      </>
+                    )}
                   </button>
                 </div>
-                {isAnalyzing && <Spinner />}
+
                 {analysisResult && (
-                  <div className="mb-6 bg-gray-900 p-4 rounded-lg">
-                    <h4 className="text-lg font-semibold mb-2 text-purple-400">
-                      Análisis con IA
+                  <div className="bg-purple-900/50 border border-purple-500/50 p-4 rounded-lg mb-6 animate-fade-in">
+                    <h4 className="text-lg font-bold text-purple-300 mb-2">
+                      Análisis de Gemini AI:
                     </h4>
-                    <p className="text-gray-300 whitespace-pre-wrap">
+                    <p className="text-gray-200 leading-relaxed">
                       {analysisResult}
                     </p>
                   </div>
                 )}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                  <div className="flex flex-col">
-                    <label
-                      htmlFor="epsGrowthRate"
-                      className="text-sm text-gray-400 mb-1"
-                    >
-                      Crecimiento EPS Anual (%)
-                    </label>
-                    <input
-                      type="number"
-                      name="epsGrowthRate"
-                      value={dcfInputs.epsGrowthRate}
-                      onChange={handleDcfInputChange}
-                      className="bg-gray-700 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none"
-                    />
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  <div className="bg-gray-800 p-6 rounded-lg">
+                    <h4 className="text-lg font-semibold mb-4">Parámetros</h4>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-400 mb-1">
+                          Tasa de Crecimiento EPS (%)
+                        </label>
+                        <input
+                          type="number"
+                          name="epsGrowthRate"
+                          value={dcfInputs.epsGrowthRate}
+                          onChange={handleDcfInputChange}
+                          className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 focus:outline-none focus:border-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-400 mb-1">
+                          Tasa de Descuento (%)
+                        </label>
+                        <input
+                          type="number"
+                          name="discountRate"
+                          value={dcfInputs.discountRate}
+                          onChange={handleDcfInputChange}
+                          className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 focus:outline-none focus:border-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-400 mb-1">
+                          Tasa de Crecimiento Terminal (%)
+                        </label>
+                        <input
+                          type="number"
+                          name="terminalGrowthRate"
+                          value={dcfInputs.terminalGrowthRate}
+                          onChange={handleDcfInputChange}
+                          className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 focus:outline-none focus:border-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-400 mb-1">
+                          P/E Ratio Objetivo
+                        </label>
+                        <input
+                          type="number"
+                          name="targetPeRatio"
+                          value={dcfInputs.targetPeRatio}
+                          onChange={handleDcfInputChange}
+                          className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 focus:outline-none focus:border-blue-500"
+                        />
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex flex-col">
-                    <label
-                      htmlFor="discountRate"
-                      className="text-sm text-gray-400 mb-1"
-                    >
-                      Tasa de Descuento (%)
-                    </label>
-                    <input
-                      type="number"
-                      name="discountRate"
-                      value={dcfInputs.discountRate}
-                      onChange={handleDcfInputChange}
-                      className="bg-gray-700 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none"
-                    />
-                  </div>
-                  <div className="flex flex-col">
-                    <label
-                      htmlFor="terminalGrowthRate"
-                      className="text-sm text-gray-400 mb-1"
-                    >
-                      Crecimiento Terminal (%)
-                    </label>
-                    <input
-                      type="number"
-                      name="terminalGrowthRate"
-                      value={dcfInputs.terminalGrowthRate}
-                      onChange={handleDcfInputChange}
-                      className="bg-gray-700 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none"
-                    />
-                  </div>
-                  <div className="flex flex-col">
-                    <label
-                      htmlFor="targetPeRatio"
-                      className="text-sm text-gray-400 mb-1"
-                    >
-                      P/E Ratio Objetivo
-                    </label>
-                    <input
-                      type="number"
-                      name="targetPeRatio"
-                      value={dcfInputs.targetPeRatio}
-                      onChange={handleDcfInputChange}
-                      className="bg-gray-700 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none"
-                    />
+
+                  <div className="bg-gray-800 p-6 rounded-lg flex flex-col justify-center items-center">
+                    <h4 className="text-lg font-semibold mb-4">
+                      Valor Intrínseco Estimado
+                    </h4>
+                    {dcfResult ? (
+                      <>
+                        <div className="text-5xl font-bold text-blue-400 mb-2">
+                          ${dcfResult.intrinsicValue.toFixed(2)}
+                        </div>
+                        <div className={`text-xl ${getDcfValuation().color}`}>
+                          {getDcfValuation().text}
+                        </div>
+                        <p className="text-sm text-gray-500 mt-4 text-center">
+                          Basado en los parámetros ingresados y el modelo DCF.
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-gray-500">
+                        Ingrese datos para calcular.
+                      </p>
+                    )}
                   </div>
                 </div>
+
                 {dcfResult && (
-                  <div className="text-center bg-gray-900 p-4 rounded-lg">
-                    <p className="text-gray-400">
-                      Valor Intrínseco Estimado (DCF)
-                    </p>
-                    <p className="text-4xl font-bold text-blue-400 my-1">
-                      ${formatNumber(dcfResult.intrinsicValue)}
-                    </p>
-                    <p
-                      className={`text-lg font-semibold ${
-                        getDcfValuation().color
-                      }`}
-                    >
-                      {getDcfValuation().text}
-                    </p>
-                  </div>
-                )}
-                {dcfResult && dcfResult.projections && (
                   <ProjectionChart
                     data={dcfResult.projections}
                     currentPrice={stockData.profile.price}
