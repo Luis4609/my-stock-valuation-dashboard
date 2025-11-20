@@ -1,228 +1,60 @@
 import React, { useState } from "react";
-import type {
-  PeerData,
-  StockData,
-} from "./types/types";
-import { Metric } from "./components/Metric";
-import { Spinner } from "./components/Spinner";
-import { ErrorMessage } from "./components/ErrorMessage";
-import { HistoricalChart } from "./components/HistoricalChart";
-import { ComparisonTable } from "./components/ComparisonTable";
-import { FinancialChecklist } from "./components/FinancialChecklist";
-import { Watchlist } from "./components/Watchlist";
-import { DcfCalculator } from "./components/DcfCalculator";
+import { useStockData } from "./hooks/useStockData";
+import { useAiAnalysis } from "./hooks/useAiAnalysis";
+import { formatNumber, formatPercentage } from "./shared/utils/formatting";
 
-const API_KEY = import.meta.env.VITE_FMP_API_KEY as string;
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY as string;
+// Feature Components
+import { Metric } from "./features/dashboard/components/Metric";
+import { FinancialChecklist } from "./features/dashboard/components/FinancialChecklist";
+import { HistoricalChart } from "./features/dashboard/components/HistoricalChart";
+import { ComparisonTable } from "./features/comparison/components/ComparisonTable";
+import { Watchlist } from "./features/watchlist/components/Watchlist";
+import { DcfCalculator } from "./features/valuation/components/DcfCalculator";
 
-// Main Application Component
+// Shared UI
+import { Spinner } from "./shared/ui/Spinner";
+import { ErrorMessage } from "./shared/ui/ErrorMessage";
+
 const App: React.FC = () => {
   const [ticker, setTicker] = useState<string>("");
-  const [stockData, setStockData] = useState<StockData | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("overview");
-  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
-  const [analysisResult, setAnalysisResult] = useState<string>("");
 
-  const fetchStockData = async (symbol: string = ticker): Promise<void> => {
-    if (!symbol) {
-      setError("Please enter a stock ticker.");
-      return;
-    }
-
-
-    setIsLoading(true);
-    setError(null);
-    setStockData(null);
-    setAnalysisResult("");
-
-    try {
-      const upperTicker = symbol.toUpperCase();
-      const profileUrl = `https://financialmodelingprep.com/stable/profile?symbol=${upperTicker}&apikey=${API_KEY}`;
-      const profileResponse = await fetch(profileUrl);
-      if (!profileResponse.ok)
-        throw new Error("Could not fetch profile data. Check ticker.");
-      const profileData = await profileResponse.json();
-      if (profileData.length === 0)
-        throw new Error(`No data found for ticker "${upperTicker}".`);
-
-      const urls = [
-        `https://financialmodelingprep.com/stable/key-metrics-ttm?symbol=${upperTicker}&apikey=${API_KEY}`,
-        `https://financialmodelingprep.com/stable/ratios-ttm?symbol=${upperTicker}&apikey=${API_KEY}`,
-        `https://financialmodelingprep.com/stable/quote?symbol=${upperTicker}&apikey=${API_KEY}`,
-        `https://financialmodelingprep.com/stable/income-statement?symbol=${upperTicker}&limit=5&apikey=${API_KEY}`,
-        `https://financialmodelingprep.com/stable/income-statement-growth?symbol=${upperTicker}&apikey=${API_KEY}`,
-      ];
-
-      const responses = await Promise.all(urls.map((url) => fetch(url)));
-      if (responses.some((res) => !res.ok))
-        throw new Error("Failed to fetch some stock data.");
-
-      const [metricsData, ratiosData, quoteData, historicalData, growthData] = await Promise.all(responses.map((res) => res.json()));
-
-      const peers: PeerData[] = [];
-
-      const rawProfile = profileData[0];
-      const rawMetrics = metricsData.length > 0 ? metricsData[0] : {};
-      const rawRatios = ratiosData.length > 0 ? ratiosData[0] : {};
-      const rawQuote = quoteData.length > 0 ? quoteData[0] : {};
-      const rawHistoricalData = historicalData.length > 0 ? historicalData[0] : {};
-      const rawGrowthData = growthData && growthData.length > 0 ? growthData[0] : {};
-
-      const combinedData: StockData = {
-        profile: {
-          ...rawProfile,
-          mktCap: rawProfile.mktCap || rawProfile.marketCap || 0,
-        },
-        metrics: {
-          ...rawMetrics,
-          epsTTM: rawMetrics.epsTTM || rawMetrics.netIncomePerShareTTM || rawHistoricalData.eps || undefined,
-          revenuePerShareTTM: rawMetrics.revenuePerShareTTM || rawMetrics.revenuePerShare || undefined,
-          growthEPS: rawGrowthData.growthEPS || undefined,
-        },
-        ratios: {
-          ...rawRatios,
-          priceEarningsRatioTTM: rawRatios.priceEarningsRatioTTM || rawRatios.peRatioTTM || rawRatios.priceToEarningsRatioTTM || undefined,
-        },
-        quote: {
-          ...rawQuote,
-          pe: rawQuote.pe || rawQuote.priceEarnings || undefined,
-          eps: rawHistoricalData.eps || undefined,
-        },
-        historicalEPS: historicalData.map((d: any) => ({
-          date: d.date,
-          eps: d.eps,
-        })),
-        peers: peers,
-      };
-
-      console.log("Transformed StockData:", combinedData);
-      console.log("Final EPS for Render (quote.eps):", combinedData.quote.eps);
-      console.log("Final EPS for Render (metrics.epsTTM):", combinedData.metrics.epsTTM);
-      console.log("---------------------");
-
-      setStockData(combinedData);
-
-      setStockData(combinedData);
-    } catch (err: any) {
-      setError(err.message);
-      setStockData(null);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const formatNumber = (num: number | null | undefined): string => {
-    if (num === null || num === undefined || isNaN(num) || !isFinite(num))
-      return "–";
-    if (num > 1_000_000_000) return `${(num / 1_000_000_000).toFixed(2)}B`;
-    if (num > 1_000_000) return `${(num / 1_000_000).toFixed(2)}M`;
-    if (num > 1_000) return `${(num / 1_000).toFixed(2)}K`;
-    return num.toFixed(2);
-  };
-
-  const formatPercentage = (num: number | null | undefined): string => {
-    const formatted = formatNumber(num);
-    if (formatted === "–") return "–";
-    return `${formatted}%`;
-  };
-
-  const handleAiAnalysis = async (): Promise<void> => {
-    if (!stockData) return;
-    setIsAnalyzing(true);
-    setAnalysisResult("");
-    setError(null);
-
-    const { profile, metrics, ratios, quote } = stockData;
-    const prompt = `Act as an expert financial analyst. Based on the following data for ${profile.companyName
-      } (${profile.symbol
-      }), provide a concise, easy-to-understand summary (in Spanish) of its financial health for a retail investor. Highlight key strengths and potential risks.
-
-        Company Profile:
-        - Industry: ${profile.industry}
-        - Price: $${profile.price}
-        - Market Cap: $${formatNumber(profile.mktCap)}
-
-        Key Metrics (TTM):
-        - P/E Ratio: ${formatNumber(quote?.pe ?? ratios?.priceEarningsRatioTTM)}
-        - P/B Ratio: ${formatNumber(
-        metrics?.priceToBookRatioTTM ?? ratios?.priceToBookRatioTTM
-      )}
-        - EPS: $${formatNumber(quote?.eps ?? metrics?.epsTTM)}
-        - Dividend Yield: ${formatPercentage(
-        (metrics?.dividendYieldTTM ?? ratios?.dividendYieldTTM)! * 100
-      )}
-        - ROE: ${formatPercentage(
-        (metrics?.returnOnEquityTTM ?? ratios?.returnOnEquityTTM)! * 100
-      )}
-        - Debt/Equity: ${formatNumber(
-        metrics?.debtToEquityTTM ?? ratios?.debtToEquityRatioTTM
-      )}
-
-        Please provide the analysis in a single, well-structured paragraph.`;
-
-    try {
-      const geminiApiKey = GEMINI_API_KEY;
-      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${geminiApiKey}`;
-      const payload = { contents: [{ parts: [{ text: prompt }] }] };
-      const response = await fetch(apiUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!response.ok)
-        throw new Error(
-          "Failed to get analysis from AI. The model may be overloaded."
-        );
-      const result = await response.json();
-      const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (text) setAnalysisResult(text);
-      else throw new Error("No analysis content received from AI.");
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setIsAnalyzing(false);
-    }
-  };
-
-
+  const { stockData, isLoading, error, fetchStockData, clearStockData } = useStockData();
+  const { isAnalyzing, analysisResult, error: aiError, analyzeStock, clearAnalysis } = useAiAnalysis();
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>): void => {
     e.preventDefault();
-    fetchStockData();
+    fetchStockData(ticker);
+    clearAnalysis();
   };
+
   const handleClear = (): void => {
     setTicker("");
-    setStockData(null);
-    setError(null);
-    setIsLoading(false);
-    setAnalysisResult("");
+    clearStockData();
+    clearAnalysis();
   };
 
+  const handleWatchlistSelect = (symbol: string) => {
+    setTicker(symbol);
+    fetchStockData(symbol);
+    clearAnalysis();
+  };
 
-  const TabButton = ({
-    id,
-    children,
-  }: {
-    id: string;
-    children: React.ReactNode;
-  }) => (
+  const handleAiAnalysis = () => {
+    if (stockData) {
+      analyzeStock(stockData);
+    }
+  };
+
+  const TabButton = ({ id, children }: { id: string; children: React.ReactNode }) => (
     <button
       onClick={() => setActiveTab(id)}
-      className={`px-4 py-2 rounded-t-lg font-semibold ${activeTab === id
-        ? "bg-gray-800 text-white"
-        : "bg-gray-700 text-gray-400"
+      className={`px-4 py-2 rounded-t-lg font-semibold ${activeTab === id ? "bg-gray-800 text-white" : "bg-gray-700 text-gray-400"
         }`}
     >
       {children}
     </button>
   );
-
-  const handleWatchlistSelect = (symbol: string) => {
-    setTicker(symbol);
-    fetchStockData(symbol);
-  };
 
   return (
     <div className="bg-gray-900 text-white min-h-screen font-sans">
@@ -239,16 +71,11 @@ const App: React.FC = () => {
         <Watchlist onSelectTicker={handleWatchlistSelect} />
 
         <div className="max-w-2xl mx-auto mb-8">
-          <form
-            onSubmit={handleSubmit}
-            className="flex flex-col sm:flex-row gap-4"
-          >
+          <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-4">
             <input
               type="text"
               value={ticker}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                setTicker(e.target.value)
-              }
+              onChange={(e) => setTicker(e.target.value)}
               placeholder="e.g., AAPL, GOOGL, MSFT"
               className="w-full px-4 py-3 bg-gray-800 border-2 border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
             />
@@ -274,9 +101,11 @@ const App: React.FC = () => {
         <div className="max-w-4xl mx-auto">
           {isLoading && <Spinner />}
           {error && <ErrorMessage message={error} />}
+          {aiError && <ErrorMessage message={aiError} />}
 
           {stockData && (
             <div className="bg-gray-800/50 p-6 rounded-2xl shadow-2xl border-l-4 border-blue-500">
+              {/* Header Section */}
               <div className="flex items-center gap-4 border-b border-gray-700 pb-4 mb-6">
                 <img
                   src={stockData.profile.image}
@@ -288,8 +117,7 @@ const App: React.FC = () => {
                     {stockData.profile.companyName} ({stockData.profile.symbol})
                   </h2>
                   <p className="text-gray-400">
-                    {stockData.profile.exchangeShortName} |{" "}
-                    {stockData.profile.industry}
+                    {stockData.profile.exchangeShortName} | {stockData.profile.industry}
                   </p>
                   <a
                     href={stockData.profile.website}
@@ -301,31 +129,18 @@ const App: React.FC = () => {
                   </a>
                 </div>
                 <div className="ml-auto text-right">
-                  <p
-                    className={`text-4xl font-bold ${stockData.profile.changes > 0
-                      ? "text-green-400"
-                      : "text-red-400"
-                      }`}
-                  >
+                  <p className={`text-4xl font-bold ${stockData.profile.changes > 0 ? "text-green-400" : "text-red-400"}`}>
                     ${formatNumber(stockData.profile.price)}
                   </p>
-                  <p
-                    className={`text-lg font-semibold ${stockData.profile.changes > 0
-                      ? "text-green-400"
-                      : "text-red-400"
-                      }`}
-                  >
+                  <p className={`text-lg font-semibold ${stockData.profile.changes > 0 ? "text-green-400" : "text-red-400"}`}>
                     {stockData.profile.changes > 0 ? "+" : ""}
                     {formatNumber(stockData.profile.changes)} (
-                    {formatNumber(
-                      (stockData.profile.changes * 100) /
-                      (stockData.profile.price - stockData.profile.changes)
-                    )}
-                    %)
+                    {formatNumber((stockData.profile.changes * 100) / (stockData.profile.price - stockData.profile.changes))}%)
                   </p>
                 </div>
               </div>
 
+              {/* Tabs */}
               <div className="border-b border-gray-700 mb-4">
                 <TabButton id="overview">Visión General</TabButton>
                 <TabButton id="historical">Análisis Histórico</TabButton>
@@ -344,57 +159,38 @@ const App: React.FC = () => {
                         />
                         <Metric
                           label="P/E Ratio (TTM)"
-                          value={formatNumber(
-                            stockData.quote?.pe ??
-                            stockData.ratios?.priceEarningsRatioTTM
-                          )}
-                          tooltip="Price-to-Earnings Ratio. A high P/E could mean a stock's price is high relative to earnings and possibly overvalued."
+                          value={formatNumber(stockData.quote?.pe ?? stockData.ratios?.priceEarningsRatioTTM)}
+                          tooltip="Price-to-Earnings Ratio."
                         />
                         <Metric
                           label="P/B Ratio (TTM)"
-                          value={formatNumber(
-                            stockData.metrics?.priceToBookRatioTTM ??
-                            stockData.ratios?.priceToBookRatioTTM
-                          )}
-                          tooltip="Price-to-Book Ratio. Compares a company's market capitalization to its book value."
+                          value={formatNumber(stockData.metrics?.priceToBookRatioTTM ?? stockData.ratios?.priceToBookRatioTTM)}
+                          tooltip="Price-to-Book Ratio."
                         />
                         <Metric
                           label="EPS (TTM)"
-                          value={`$${formatNumber(
-                            stockData.quote?.eps ?? stockData.metrics?.epsTTM
-                          )}`}
-                          tooltip="Earnings Per Share. The portion of a company's profit allocated to each outstanding share."
+                          value={`$${formatNumber(stockData.quote?.eps ?? stockData.metrics?.epsTTM)}`}
+                          tooltip="Earnings Per Share."
                         />
                         <Metric
                           label="Dividend Yield"
-                          value={formatPercentage(
-                            (stockData.metrics?.dividendYieldTTM ??
-                              stockData.ratios?.dividendYieldTTM)! * 100
-                          )}
-                          tooltip="The ratio of a company's annual dividend compared to its share price."
+                          value={formatPercentage((stockData.metrics?.dividendYieldTTM ?? stockData.ratios?.dividendYieldTTM)! * 100)}
+                          tooltip="Annual dividend yield."
                         />
                         <Metric
                           label="ROE (TTM)"
-                          value={formatPercentage(
-                            (stockData.metrics?.returnOnEquityTTM ??
-                              stockData.ratios?.returnOnEquityTTM)! * 100
-                          )}
-                          tooltip="Return on Equity. Measures a corporation's profitability in relation to stockholders’ equity."
+                          value={formatPercentage((stockData.metrics?.returnOnEquityTTM ?? stockData.ratios?.returnOnEquityTTM)! * 100)}
+                          tooltip="Return on Equity."
                         />
                         <Metric
                           label="Debt/Equity (TTM)"
-                          value={formatNumber(
-                            stockData.metrics?.debtToEquityTTM ??
-                            stockData.ratios?.debtToEquityRatioTTM
-                          )}
-                          tooltip="Measures a company's financial leverage."
+                          value={formatNumber(stockData.metrics?.debtToEquityTTM ?? stockData.ratios?.debtToEquityRatioTTM)}
+                          tooltip="Debt to Equity Ratio."
                         />
                         <Metric
                           label="EPS Growth"
-                          value={formatPercentage(
-                            stockData.metrics?.growthEPS! * 100
-                          )}
-                          tooltip="The percentage change in a company's earnings per share (EPS) over a specified period."
+                          value={formatPercentage(stockData.metrics?.growthEPS! * 100)}
+                          tooltip="EPS Growth Rate."
                         />
                       </div>
                     </div>
@@ -403,17 +199,11 @@ const App: React.FC = () => {
                     </div>
                   </div>
                 )}
-                {activeTab === "historical" && (
-                  <HistoricalChart data={stockData.historicalEPS} />
-                )}
-                {activeTab === "comparison" && (
-                  <ComparisonTable
-                    peers={stockData.peers}
-                    mainStock={stockData}
-                  />
-                )}
+                {activeTab === "historical" && <HistoricalChart data={stockData.historicalEPS} />}
+                {activeTab === "comparison" && <ComparisonTable peers={stockData.peers} mainStock={stockData} />}
               </div>
 
+              {/* Analysis & Valuation Section */}
               <div className="mt-8 border-t border-gray-700 pt-6">
                 <div className="flex justify-between items-center mb-6">
                   <h3 className="text-2xl font-bold">Análisis y Valoración</h3>
@@ -440,9 +230,7 @@ const App: React.FC = () => {
                     <h4 className="text-lg font-bold text-purple-300 mb-2">
                       Análisis de Gemini AI:
                     </h4>
-                    <p className="text-gray-200 leading-relaxed">
-                      {analysisResult}
-                    </p>
+                    <p className="text-gray-200 leading-relaxed">{analysisResult}</p>
                   </div>
                 )}
 

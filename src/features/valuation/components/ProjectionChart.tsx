@@ -1,5 +1,5 @@
 import React from "react";
-import type { ProjectionChartProps } from "../types/types";
+import type { ProjectionChartProps } from "../../../types/types";
 
 export const ProjectionChart: React.FC<ProjectionChartProps> = ({
   data,

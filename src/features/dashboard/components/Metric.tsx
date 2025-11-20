@@ -1,5 +1,5 @@
 import React from "react";
-import type { MetricProps } from "../types/types";
+import type { MetricProps } from "../../../types/types";
 
 export const Metric: React.FC<MetricProps> = ({ label, value, tooltip }) => (
   <div className="relative flex flex-col bg-gray-800 p-4 rounded-lg shadow-md group h-full">

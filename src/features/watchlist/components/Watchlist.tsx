@@ -1,8 +1,5 @@
 import React, { useState, useEffect } from "react";
-
-interface WatchlistProps {
-  onSelectTicker: (ticker: string) => void;
-}
+import type { WatchlistProps } from "../../../types/types";
 
 export const Watchlist: React.FC<WatchlistProps> = ({ onSelectTicker }) => {
   const [watchlist, setWatchlist] = useState<string[]>([]);

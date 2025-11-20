@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import type { StockData, ProjectionPoint } from "../types/types";
+import type { StockData, ProjectionPoint } from "../../../types/types";
 import { ProjectionChart } from "./ProjectionChart";
 
 interface DcfCalculatorProps {

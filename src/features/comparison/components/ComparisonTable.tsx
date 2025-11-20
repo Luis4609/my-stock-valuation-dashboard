@@ -1,17 +1,11 @@
 import React from "react";
-import type { ComparisonTableProps } from "../types/types";
+import type { ComparisonTableProps } from "../../../types/types";
+import { formatNumber } from "../../../shared/utils/formatting";
 
 export const ComparisonTable: React.FC<ComparisonTableProps> = ({
   peers,
   mainStock,
 }) => {
-  const formatNumber = (num: number | null | undefined): string => {
-    if (num === null || num === undefined || isNaN(num) || !isFinite(num))
-      return "–";
-    if (num > 1_000_000_000) return `${(num / 1_000_000_000).toFixed(2)}B`;
-    return num.toFixed(2);
-  };
-
   const peerStats = peers.filter((p) => p.pe && p.mktCap);
   const avgPE = peerStats.reduce((acc, p) => acc + p.pe!, 0) / peerStats.length;
   const avgMktCap =
@@ -45,9 +39,8 @@ export const ComparisonTable: React.FC<ComparisonTableProps> = ({
             {allStocks.map((stock) => (
               <tr
                 key={stock.symbol}
-                className={`${
-                  stock.isMain ? "bg-blue-900/50" : ""
-                } border-b border-gray-700/50`}
+                className={`${stock.isMain ? "bg-blue-900/50" : ""
+                  } border-b border-gray-700/50`}
               >
                 <td className="p-2 font-bold">{stock.symbol}</td>
                 <td className="p-2">{formatNumber(stock.pe)}</td>

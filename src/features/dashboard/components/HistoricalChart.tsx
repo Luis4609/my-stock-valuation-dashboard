@@ -1,5 +1,5 @@
 import React from "react";
-import type { HistoricalChartProps } from "../types/types";
+import type { HistoricalChartProps } from "../../../types/types";
 
 export const HistoricalChart: React.FC<HistoricalChartProps> = ({ data }) => {
   if (!data || data.length === 0)
