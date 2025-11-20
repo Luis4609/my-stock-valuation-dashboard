@@ -19,6 +19,7 @@ export interface Metrics {
   returnOnEquityTTM?: number;
   debtToEquityTTM?: number;
   revenuePerShareTTM?: number;
+  growthEPS?: number;
 }
 
 export interface Ratios {

@@ -1,18 +1,16 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import type {
-  DcfInputs,
-  DcfResult,
   PeerData,
   StockData,
 } from "./types/types";
 import { Metric } from "./components/Metric";
 import { Spinner } from "./components/Spinner";
 import { ErrorMessage } from "./components/ErrorMessage";
-import { ProjectionChart } from "./components/ProjectionChart";
 import { HistoricalChart } from "./components/HistoricalChart";
 import { ComparisonTable } from "./components/ComparisonTable";
 import { FinancialChecklist } from "./components/FinancialChecklist";
 import { Watchlist } from "./components/Watchlist";
+import { DcfCalculator } from "./components/DcfCalculator";
 
 const API_KEY = import.meta.env.VITE_FMP_API_KEY as string;
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY as string;
@@ -24,13 +22,6 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("overview");
-  const [dcfInputs, setDcfInputs] = useState<DcfInputs>({
-    epsGrowthRate: 10,
-    discountRate: 8,
-    terminalGrowthRate: 2,
-    targetPeRatio: 20,
-  });
-  const [dcfResult, setDcfResult] = useState<DcfResult | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [analysisResult, setAnalysisResult] = useState<string>("");
 
@@ -56,22 +47,19 @@ const App: React.FC = () => {
       if (profileData.length === 0)
         throw new Error(`No data found for ticker "${upperTicker}".`);
 
-
-
       const urls = [
         `https://financialmodelingprep.com/stable/key-metrics-ttm?symbol=${upperTicker}&apikey=${API_KEY}`,
         `https://financialmodelingprep.com/stable/ratios-ttm?symbol=${upperTicker}&apikey=${API_KEY}`,
         `https://financialmodelingprep.com/stable/quote?symbol=${upperTicker}&apikey=${API_KEY}`,
         `https://financialmodelingprep.com/stable/income-statement?symbol=${upperTicker}&limit=5&apikey=${API_KEY}`,
-
+        `https://financialmodelingprep.com/stable/income-statement-growth?symbol=${upperTicker}&apikey=${API_KEY}`,
       ];
 
       const responses = await Promise.all(urls.map((url) => fetch(url)));
       if (responses.some((res) => !res.ok))
         throw new Error("Failed to fetch some stock data.");
 
-      const [metricsData, ratiosData, quoteData, historicalData] =
-        await Promise.all(responses.map((res) => res.json()));
+      const [metricsData, ratiosData, quoteData, historicalData, growthData] = await Promise.all(responses.map((res) => res.json()));
 
       const peers: PeerData[] = [];
 
@@ -79,29 +67,44 @@ const App: React.FC = () => {
       const rawMetrics = metricsData.length > 0 ? metricsData[0] : {};
       const rawRatios = ratiosData.length > 0 ? ratiosData[0] : {};
       const rawQuote = quoteData.length > 0 ? quoteData[0] : {};
+      const rawHistoricalData = historicalData.length > 0 ? historicalData[0] : {};
+      const rawGrowthData = growthData && growthData.length > 0 ? growthData[0] : {};
 
       const combinedData: StockData = {
         profile: {
           ...rawProfile,
           mktCap: rawProfile.mktCap || rawProfile.marketCap || 0,
         },
-        metrics: rawMetrics,
-        ratios: rawRatios,
-        quote: rawQuote,
+        metrics: {
+          ...rawMetrics,
+          epsTTM: rawMetrics.epsTTM || rawMetrics.netIncomePerShareTTM || rawHistoricalData.eps || undefined,
+          revenuePerShareTTM: rawMetrics.revenuePerShareTTM || rawMetrics.revenuePerShare || undefined,
+          growthEPS: rawGrowthData.growthEPS || undefined,
+        },
+        ratios: {
+          ...rawRatios,
+          priceEarningsRatioTTM: rawRatios.priceEarningsRatioTTM || rawRatios.peRatioTTM || rawRatios.priceToEarningsRatioTTM || undefined,
+        },
+        quote: {
+          ...rawQuote,
+          pe: rawQuote.pe || rawQuote.priceEarnings || undefined,
+          eps: rawHistoricalData.eps || undefined,
+        },
         historicalEPS: historicalData.map((d: any) => ({
           date: d.date,
           eps: d.eps,
         })),
         peers: peers,
       };
+
+      console.log("Transformed StockData:", combinedData);
+      console.log("Final EPS for Render (quote.eps):", combinedData.quote.eps);
+      console.log("Final EPS for Render (metrics.epsTTM):", combinedData.metrics.epsTTM);
+      console.log("---------------------");
+
       setStockData(combinedData);
 
-      if (combinedData.quote?.pe) {
-        setDcfInputs((prev) => ({
-          ...prev,
-          targetPeRatio: parseFloat(combinedData.quote.pe!.toFixed(2)),
-        }));
-      }
+      setStockData(combinedData);
     } catch (err: any) {
       setError(err.message);
       setStockData(null);
@@ -132,11 +135,9 @@ const App: React.FC = () => {
     setError(null);
 
     const { profile, metrics, ratios, quote } = stockData;
-    const prompt = `Act as an expert financial analyst. Based on the following data for ${
-      profile.companyName
-    } (${
-      profile.symbol
-    }), provide a concise, easy-to-understand summary (in Spanish) of its financial health for a retail investor. Highlight key strengths and potential risks.
+    const prompt = `Act as an expert financial analyst. Based on the following data for ${profile.companyName
+      } (${profile.symbol
+      }), provide a concise, easy-to-understand summary (in Spanish) of its financial health for a retail investor. Highlight key strengths and potential risks.
 
         Company Profile:
         - Industry: ${profile.industry}
@@ -146,18 +147,18 @@ const App: React.FC = () => {
         Key Metrics (TTM):
         - P/E Ratio: ${formatNumber(quote?.pe ?? ratios?.priceEarningsRatioTTM)}
         - P/B Ratio: ${formatNumber(
-          metrics?.priceToBookRatioTTM ?? ratios?.priceToBookRatioTTM
-        )}
+        metrics?.priceToBookRatioTTM ?? ratios?.priceToBookRatioTTM
+      )}
         - EPS: $${formatNumber(quote?.eps ?? metrics?.epsTTM)}
         - Dividend Yield: ${formatPercentage(
-          (metrics?.dividendYieldTTM ?? ratios?.dividendYieldTTM)! * 100
-        )}
+        (metrics?.dividendYieldTTM ?? ratios?.dividendYieldTTM)! * 100
+      )}
         - ROE: ${formatPercentage(
-          (metrics?.returnOnEquityTTM ?? ratios?.returnOnEquityTTM)! * 100
-        )}
+        (metrics?.returnOnEquityTTM ?? ratios?.returnOnEquityTTM)! * 100
+      )}
         - Debt/Equity: ${formatNumber(
-          metrics?.debtToEquityTTM ?? ratios?.debtToEquityRatioTTM
-        )}
+        metrics?.debtToEquityTTM ?? ratios?.debtToEquityRatioTTM
+      )}
 
         Please provide the analysis in a single, well-structured paragraph.`;
 
@@ -185,34 +186,7 @@ const App: React.FC = () => {
     }
   };
 
-  useEffect(() => {
-    const { epsGrowthRate, discountRate, terminalGrowthRate } = dcfInputs;
-    if (stockData && stockData.quote?.eps) {
-      let futureEps: number[] = [stockData.quote.eps];
-      for (let i = 1; i <= 5; i++)
-        futureEps.push(futureEps[i - 1] * (1 + epsGrowthRate / 100));
-      const discountedEps = futureEps
-        .slice(1)
-        .map((eps, i) => eps / Math.pow(1 + discountRate / 100, i + 1));
-      const terminalValue =
-        (futureEps[5] * (1 + terminalGrowthRate / 100)) /
-        (discountRate / 100 - terminalGrowthRate / 100);
-      const discountedTerminalValue =
-        terminalValue / Math.pow(1 + discountRate / 100, 5);
-      const intrinsicValue =
-        discountedEps.reduce((a, b) => a + b, 0) + discountedTerminalValue;
-      const currentYear = new Date().getFullYear();
-      const projections = futureEps
-        .slice(1)
-        .map((eps, i) => ({
-          year: currentYear + i + 1,
-          price: eps * dcfInputs.targetPeRatio,
-        }));
-      setDcfResult({ intrinsicValue, projections });
-    } else {
-      setDcfResult(null);
-    }
-  }, [stockData, dcfInputs]);
+
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>): void => {
     e.preventDefault();
@@ -225,39 +199,7 @@ const App: React.FC = () => {
     setIsLoading(false);
     setAnalysisResult("");
   };
-  const handleDcfInputChange = (
-    e: React.ChangeEvent<HTMLInputElement>
-  ): void => {
-    const { name, value } = e.target;
-    setDcfInputs((prev) => ({ ...prev, [name]: parseFloat(value) || 0 }));
-  };
-  const getValuationColor = (peRatio: number | undefined | null): string => {
-    const pe = peRatio ?? stockData?.ratios?.priceEarningsRatioTTM;
-    if (pe === null || pe === undefined || pe <= 0) return "border-gray-600";
-    if (pe < 15) return "border-green-500";
-    if (pe >= 15 && pe <= 25) return "border-yellow-500";
-    return "border-red-500";
-  };
-  const getDcfValuation = (): { text: string; color: string } => {
-    if (!dcfResult || !stockData) return { text: "", color: "text-white" };
-    const difference =
-      ((dcfResult.intrinsicValue - stockData.profile.price) /
-        stockData.profile.price) *
-      100;
-    if (difference > 10)
-      return {
-        text: `Potencialmente infravalorada en un ${difference.toFixed(2)}%`,
-        color: "text-green-400",
-      };
-    if (difference < -10)
-      return {
-        text: `Potencialmente sobrevalorada en un ${Math.abs(
-          difference
-        ).toFixed(2)}%`,
-        color: "text-red-400",
-      };
-    return { text: "Valoración justa", color: "text-yellow-400" };
-  };
+
 
   const TabButton = ({
     id,
@@ -268,11 +210,10 @@ const App: React.FC = () => {
   }) => (
     <button
       onClick={() => setActiveTab(id)}
-      className={`px-4 py-2 rounded-t-lg font-semibold ${
-        activeTab === id
-          ? "bg-gray-800 text-white"
-          : "bg-gray-700 text-gray-400"
-      }`}
+      className={`px-4 py-2 rounded-t-lg font-semibold ${activeTab === id
+        ? "bg-gray-800 text-white"
+        : "bg-gray-700 text-gray-400"
+        }`}
     >
       {children}
     </button>
@@ -335,14 +276,7 @@ const App: React.FC = () => {
           {error && <ErrorMessage message={error} />}
 
           {stockData && (
-            <div
-              className="bg-gray-800/50 p-6 rounded-2xl shadow-2xl border-l-4"
-              style={{
-                borderColor: getValuationColor(stockData.quote?.pe).split(
-                  "-"
-                )[1],
-              }}
-            >
+            <div className="bg-gray-800/50 p-6 rounded-2xl shadow-2xl border-l-4 border-blue-500">
               <div className="flex items-center gap-4 border-b border-gray-700 pb-4 mb-6">
                 <img
                   src={stockData.profile.image}
@@ -368,26 +302,24 @@ const App: React.FC = () => {
                 </div>
                 <div className="ml-auto text-right">
                   <p
-                    className={`text-4xl font-bold ${
-                      stockData.profile.changes > 0
-                        ? "text-green-400"
-                        : "text-red-400"
-                    }`}
+                    className={`text-4xl font-bold ${stockData.profile.changes > 0
+                      ? "text-green-400"
+                      : "text-red-400"
+                      }`}
                   >
                     ${formatNumber(stockData.profile.price)}
                   </p>
                   <p
-                    className={`text-lg font-semibold ${
-                      stockData.profile.changes > 0
-                        ? "text-green-400"
-                        : "text-red-400"
-                    }`}
+                    className={`text-lg font-semibold ${stockData.profile.changes > 0
+                      ? "text-green-400"
+                      : "text-red-400"
+                      }`}
                   >
                     {stockData.profile.changes > 0 ? "+" : ""}
                     {formatNumber(stockData.profile.changes)} (
                     {formatNumber(
                       (stockData.profile.changes * 100) /
-                        (stockData.profile.price - stockData.profile.changes)
+                      (stockData.profile.price - stockData.profile.changes)
                     )}
                     %)
                   </p>
@@ -414,7 +346,7 @@ const App: React.FC = () => {
                           label="P/E Ratio (TTM)"
                           value={formatNumber(
                             stockData.quote?.pe ??
-                              stockData.ratios?.priceEarningsRatioTTM
+                            stockData.ratios?.priceEarningsRatioTTM
                           )}
                           tooltip="Price-to-Earnings Ratio. A high P/E could mean a stock's price is high relative to earnings and possibly overvalued."
                         />
@@ -422,7 +354,7 @@ const App: React.FC = () => {
                           label="P/B Ratio (TTM)"
                           value={formatNumber(
                             stockData.metrics?.priceToBookRatioTTM ??
-                              stockData.ratios?.priceToBookRatioTTM
+                            stockData.ratios?.priceToBookRatioTTM
                           )}
                           tooltip="Price-to-Book Ratio. Compares a company's market capitalization to its book value."
                         />
@@ -453,16 +385,16 @@ const App: React.FC = () => {
                           label="Debt/Equity (TTM)"
                           value={formatNumber(
                             stockData.metrics?.debtToEquityTTM ??
-                              stockData.ratios?.debtToEquityRatioTTM
+                            stockData.ratios?.debtToEquityRatioTTM
                           )}
                           tooltip="Measures a company's financial leverage."
                         />
                         <Metric
-                          label="Revenue per Share"
-                          value={`$${formatNumber(
-                            stockData.metrics?.revenuePerShareTTM
-                          )}`}
-                          tooltip="A company's total revenue divided by its number of shares outstanding."
+                          label="EPS Growth"
+                          value={formatPercentage(
+                            stockData.metrics?.growthEPS! * 100
+                          )}
+                          tooltip="The percentage change in a company's earnings per share (EPS) over a specified period."
                         />
                       </div>
                     </div>
@@ -483,10 +415,8 @@ const App: React.FC = () => {
               </div>
 
               <div className="mt-8 border-t border-gray-700 pt-6">
-                <div className="flex justify-center items-center gap-4 mb-4">
-                  <h3 className="text-2xl font-bold">
-                    Calculadora de Flujo de Caja Descontado (DCF)
-                  </h3>
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="text-2xl font-bold">Análisis y Valoración</h3>
                   <button
                     onClick={handleAiAnalysis}
                     disabled={isAnalyzing || isLoading}
@@ -516,91 +446,7 @@ const App: React.FC = () => {
                   </div>
                 )}
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                  <div className="bg-gray-800 p-6 rounded-lg">
-                    <h4 className="text-lg font-semibold mb-4">Parámetros</h4>
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-400 mb-1">
-                          Tasa de Crecimiento EPS (%)
-                        </label>
-                        <input
-                          type="number"
-                          name="epsGrowthRate"
-                          value={dcfInputs.epsGrowthRate}
-                          onChange={handleDcfInputChange}
-                          className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 focus:outline-none focus:border-blue-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-400 mb-1">
-                          Tasa de Descuento (%)
-                        </label>
-                        <input
-                          type="number"
-                          name="discountRate"
-                          value={dcfInputs.discountRate}
-                          onChange={handleDcfInputChange}
-                          className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 focus:outline-none focus:border-blue-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-400 mb-1">
-                          Tasa de Crecimiento Terminal (%)
-                        </label>
-                        <input
-                          type="number"
-                          name="terminalGrowthRate"
-                          value={dcfInputs.terminalGrowthRate}
-                          onChange={handleDcfInputChange}
-                          className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 focus:outline-none focus:border-blue-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-400 mb-1">
-                          P/E Ratio Objetivo
-                        </label>
-                        <input
-                          type="number"
-                          name="targetPeRatio"
-                          value={dcfInputs.targetPeRatio}
-                          onChange={handleDcfInputChange}
-                          className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 focus:outline-none focus:border-blue-500"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="bg-gray-800 p-6 rounded-lg flex flex-col justify-center items-center">
-                    <h4 className="text-lg font-semibold mb-4">
-                      Valor Intrínseco Estimado
-                    </h4>
-                    {dcfResult ? (
-                      <>
-                        <div className="text-5xl font-bold text-blue-400 mb-2">
-                          ${dcfResult.intrinsicValue.toFixed(2)}
-                        </div>
-                        <div className={`text-xl ${getDcfValuation().color}`}>
-                          {getDcfValuation().text}
-                        </div>
-                        <p className="text-sm text-gray-500 mt-4 text-center">
-                          Basado en los parámetros ingresados y el modelo DCF.
-                        </p>
-                      </>
-                    ) : (
-                      <p className="text-gray-500">
-                        Ingrese datos para calcular.
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                {dcfResult && (
-                  <ProjectionChart
-                    data={dcfResult.projections}
-                    currentPrice={stockData.profile.price}
-                  />
-                )}
+                <DcfCalculator stockData={stockData} />
               </div>
             </div>
           )}
